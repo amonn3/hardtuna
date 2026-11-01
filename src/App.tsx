@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { LanguageSelector } from './components/LanguageSelector';
+import { messages, readLanguage, saveLanguage, type Language } from './i18n';
 import { useTuner } from './audio/useTuner';
 import { Gauge, type GaugeTone } from './components/Gauge';
 import { StringSelector } from './components/StringSelector';
@@ -35,6 +37,14 @@ function Logo() {
 }
 
 export function App() {
+  const [language, setLanguage] = useState<Language>(readLanguage);
+  const text = messages[language];
+  useEffect(() => {
+    saveLanguage(language);
+    document.documentElement.lang = language;
+    document.title = text.appTitle;
+    document.querySelector('meta[name="description"]')?.setAttribute('content', text.description);
+  }, [language, text]);
   const [a4, setA4] = useState(() => readPreference('a4', 440, 430, 450));
   const [sensitivity, setSensitivity] = useState(() => readPreference('sensitivity', 50, 0, 100));
   const [lockedId, setLockedId] = useState<number | null>(null);
@@ -102,33 +112,33 @@ export function App() {
 
   let hint: { title: string; detail: string; dir: 'up' | 'down' | 'ok' | 'none' };
   if (!listening) {
-    hint = { title: 'Pronto para afinar', detail: 'Ative o microfone para começar', dir: 'none' };
+    hint = { title: text.ready, detail: text.activateHint, dir: 'none' };
   } else if (tuner.quality === 'calibrating') {
-    hint = { title: 'Medindo ruído ambiente', detail: 'Aguarde um segundo em silêncio', dir: 'none' };
+    hint = { title: text.calibrating, detail: text.silence, dir: 'none' };
   } else if (tuner.quality === 'clipping') {
-    hint = { title: 'Sinal saturado', detail: 'Afaste o instrumento do microfone', dir: 'none' };
+    hint = { title: text.clipping, detail: text.moveAway, dir: 'none' };
   } else if (tuner.quality === 'unclear') {
-    hint = { title: 'Som pouco definido', detail: 'Toque apenas uma corda e reduza o ruído ao redor', dir: 'none' };
+    hint = { title: text.unclear, detail: text.reduceNoise, dir: 'none' };
   } else if (hasSignal && target === null) {
-    hint = { title: 'Nota distante das cordas', detail: 'Selecione a corda no modo manual para conferir', dir: 'none' };
+    hint = { title: text.distant, detail: text.selectManual, dir: 'none' };
   } else if (cents === null) {
     hint = {
-      title: frequency !== null ? 'Leitura anterior' : 'Toque uma corda',
-      detail: lockedId !== null ? `Modo manual: ${lockedId}ª corda` : 'A corda é detectada automaticamente',
+      title: frequency !== null ? text.previous : text.play,
+      detail: lockedId !== null ? `${text.manualMode}: ${text.string} ${lockedId}` : text.automatic,
       dir: 'none',
     };
   } else if (Math.abs(cents) <= IN_TUNE_CENTS) {
-    hint = { title: 'Afinado!', detail: 'Perfeito, pode passar para a próxima corda', dir: 'ok' };
+    hint = { title: text.tuned, detail: text.next, dir: 'ok' };
   } else if (cents < 0) {
     hint = {
-      title: 'Aperte a corda',
-      detail: cents < -50 ? 'Confira a corda selecionada e ajuste aos poucos' : 'Está baixo (♭) — suba a afinação',
+      title: text.tighten,
+      detail: cents < -50 ? text.checkString : text.flat,
       dir: 'up',
     };
   } else {
     hint = {
-      title: 'Afrouxe a corda',
-      detail: cents > 50 ? 'Confira a corda selecionada e ajuste aos poucos' : 'Está alto (♯) — desça a afinação',
+      title: text.loosen,
+      detail: cents > 50 ? text.checkString : text.sharp,
       dir: 'down',
     };
   }
@@ -142,12 +152,15 @@ export function App() {
           <Logo />
           <div>
             <h1>HardTuna</h1>
-            <p>Afinador de violão</p>
+            <p>{text.subtitle}</p>
           </div>
         </div>
-        <div className="tuning-badge" title="Afinação padrão">
-          <span>Padrão</span>
-          <strong>E A D G B E</strong>
+        <div className="topbar__actions">
+          {listening && <LanguageSelector language={language} onChange={setLanguage} text={text} />}
+          <div className="tuning-badge" title={text.standardTuning}>
+            <span>{text.standard}</span>
+            <strong>E A D G B E</strong>
+          </div>
         </div>
       </header>
 
@@ -169,7 +182,7 @@ export function App() {
               </div>
               {detectedNote && lockedId !== null && (
                 <div className="readout__detected">
-                  ouvindo {detectedNote.name}
+                  {text.hearing} {detectedNote.name}
                   <sub>{detectedNote.octave}</sub>
                 </div>
               )}
@@ -177,7 +190,7 @@ export function App() {
           ) : (
             <div className="readout__placeholder">
               <span className="readout__note readout__note--dim">—</span>
-              <div className="readout__freq">aguardando som</div>
+              <div className="readout__freq">{text.waiting}</div>
             </div>
           )}
         </Gauge>
@@ -196,6 +209,7 @@ export function App() {
         </div>
 
         <StringSelector
+          text={text}
           activeId={hasSignal ? target?.id ?? null : null}
           lockedId={lockedId}
           tunedIds={tunedIds}
@@ -204,9 +218,9 @@ export function App() {
         />
 
         <div className="controls">
-          <div className="segmented" role="group" aria-label="Modo">
+          <div className="segmented" role="group" aria-label={text.mode}>
             <button type="button" aria-pressed={lockedId === null} className={lockedId === null ? 'is-on' : ''} onClick={() => setLockedId(null)}>
-              Auto
+              {text.auto}
             </button>
             <button
               type="button"
@@ -214,24 +228,24 @@ export function App() {
               className={lockedId !== null ? 'is-on' : ''}
               onClick={() => setLockedId((prev) => prev ?? shownTarget?.id ?? 6)}
             >
-              Manual
+              {text.manual}
             </button>
           </div>
 
-          <div className="a4" aria-label="Frequência de referência">
-            <button type="button" onClick={() => changeA4(a4 - 1)} disabled={a4 <= A4_MIN} aria-label="Diminuir A4">−</button>
+          <div className="a4" aria-label={text.reference}>
+            <button type="button" onClick={() => changeA4(a4 - 1)} disabled={a4 <= A4_MIN} aria-label={text.decreaseA4}>−</button>
             <span>A4 <strong>{a4}</strong> Hz</span>
-            <button type="button" onClick={() => changeA4(a4 + 1)} disabled={a4 >= A4_MAX} aria-label="Aumentar A4">+</button>
+            <button type="button" onClick={() => changeA4(a4 + 1)} disabled={a4 >= A4_MAX} aria-label={text.increaseA4}>+</button>
           </div>
 
           <div className="mic">
-            <div className="meter" aria-label="Nível do microfone">
+            <div className="meter" aria-label={text.micLevel}>
               {Array.from({ length: 12 }, (_, i) => (
                 <span key={i} className={tuner.level * 12 > i ? 'on' : ''} />
               ))}
             </div>
             {listening && (
-              <button ref={micButtonRef} type="button" className="icon-btn" onClick={tuner.stop} title="Desligar microfone" aria-label="Desligar microfone">
+              <button ref={micButtonRef} type="button" className="icon-btn" onClick={tuner.stop} title={text.stopMic} aria-label={text.stopMic}>
                 <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M3 3l18 18" /></svg>
               </button>
             )}
@@ -239,11 +253,11 @@ export function App() {
         </div>
 
         <div className="preferences">
-          <label htmlFor="sensitivity">Sensibilidade: {sensitivity}%</label>
+          <label htmlFor="sensitivity">{text.sensitivity}: {sensitivity}%</label>
           <input id="sensitivity" type="range" min="0" max="100" value={sensitivity}
             onChange={e => { setSensitivity(Number(e.target.value)); confirmation.current.reset(); }} />
-          <button type="button" onClick={() => { confirmation.current.reset(); tuner.calibrate(); }}>Calibrar ruído</button>
-          <button type="button" onClick={resetTuning}>Reiniciar afinação</button>
+          <button type="button" onClick={() => { confirmation.current.reset(); tuner.calibrate(); }}>{text.calibrate}</button>
+          <button type="button" onClick={resetTuning}>{text.reset}</button>
         </div>
         </div>
 
@@ -252,10 +266,10 @@ export function App() {
             onKeyDown={event => {
               if (event.key === 'Escape' && status === 'starting') tuner.stop();
               if (event.key !== 'Tab') return;
-              const buttons = overlayRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
-              if (!buttons?.length) { event.preventDefault(); return; }
-              const first = buttons[0];
-              const last = buttons[buttons.length - 1];
+              const controls = overlayRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled)');
+              if (!controls?.length) { event.preventDefault(); return; }
+              const first = controls[0];
+              const last = controls[controls.length - 1];
               if (event.shiftKey && (document.activeElement === first || document.activeElement === overlayRef.current)) {
                 event.preventDefault(); last.focus();
               } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === overlayRef.current)) {
@@ -263,25 +277,26 @@ export function App() {
               }
             }}>
             <div className="overlay__content">
+              <LanguageSelector language={language} onChange={setLanguage} text={text} />
               <div className="overlay__icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
               </div>
-              <h2 id="start-title">Vamos afinar seu violão</h2>
-              <p>O HardTuna precisa ouvir seu instrumento. O áudio é processado localmente no seu navegador e nunca sai do seu computador.</p>
+              <h2 id="start-title">{text.startTitle}</h2>
+              <p>{text.privacy}</p>
               <button type="button" className="primary" onClick={tuner.start} disabled={status === 'starting'}>
-                {status === 'starting' ? 'Aguardando permissão…' : 'Ativar microfone'}
+                {status === 'starting' ? text.permission : text.activate}
               </button>
-              {status === 'starting' && <button type="button" onClick={tuner.stop}>Cancelar</button>}
-              {tuner.error && <p className="overlay__error">{tuner.error}</p>}
+              {status === 'starting' && <button type="button" onClick={tuner.stop}>{text.cancel}</button>}
+              {tuner.error && <p className="overlay__error">{text[tuner.error]}</p>}
             </div>
           </div>
         )}
       </main>
 
       <footer className="footnote">
-        <p>Dica: toque uma corda de cada vez, deixando-a soar livre. Tolerância: ±{IN_TUNE_CENTS} cents.</p>
+        <p>{text.tip} ±{IN_TUNE_CENTS} cents.</p>
         <p className="footnote__signature">
-          HardTuna™ · por <a href="https://github.com/amonn3">amonn3</a>
+          HardTuna™ · {text.by} <a href="https://github.com/amonn3">amonn3</a>
         </p>
       </footer>
     </div>

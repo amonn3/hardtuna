@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="160" viewBox="0 0 720 160" role="img" aria-labelledby="title desc">
   <title id="title">HardTuna</title>
-  <desc id="desc">Peixe em degradê verde e azul ao lado do nome HardTuna.</desc>
+  <desc id="desc">A fish in a green and blue gradient beside the HardTuna name.</desc>
   <defs>
     <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5ef2c0"/>
