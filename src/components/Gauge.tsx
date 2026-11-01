@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+
+import { IN_TUNE_CENTS } from '../tuning';
 
 export type GaugeTone = 'idle' | 'tuned' | 'close' | 'far';
 
@@ -14,7 +16,6 @@ const R = 172;
 /** Half of the dial sweep, in degrees from 12 o'clock. */
 const SWEEP = 125;
 const RANGE = 50;
-const IN_TUNE_CENTS = 3;
 
 const centsToAngle = (c: number) => (Math.max(-RANGE, Math.min(RANGE, c)) / RANGE) * SWEEP;
 
@@ -35,30 +36,43 @@ function arcPath(r: number, from: number, to: number): string {
 export function Gauge({ cents, tone, children }: GaugeProps) {
   const needleRef = useRef<SVGGElement>(null);
   const trailRef = useRef<SVGPathElement>(null);
-  const targetRef = useRef(0);
-  targetRef.current = cents === null ? 0 : centsToAngle(cents);
+  const motion = useRef({ pos: 0, vel: 0 });
+  const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const changed = () => setReduced(media.matches);
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
+  }, []);
 
-  // Damped spring so the needle moves like a real analog gauge.
   useEffect(() => {
     let raf = 0;
-    let pos = 0;
-    let vel = 0;
     let last = performance.now();
-    const stiffness = 150;
-    const damping = 18;
-
+    const target = cents === null ? 0 : centsToAngle(cents);
+    const paint = () => {
+      const { pos } = motion.current;
+      needleRef.current?.setAttribute('transform', `rotate(${pos.toFixed(3)} ${CX} ${CY})`);
+      trailRef.current?.setAttribute('d', arcPath(R - 14, Math.min(0, pos), Math.max(0, pos)));
+    };
+    if (reduced || cents === null) {
+      motion.current = { pos: target, vel: 0 };
+      paint();
+      return;
+    }
     const step = (now: number) => {
       const dt = Math.min(0.04, (now - last) / 1000);
       last = now;
-      vel += (stiffness * (targetRef.current - pos) - damping * vel) * dt;
-      pos += vel * dt;
-      needleRef.current?.setAttribute('transform', `rotate(${pos.toFixed(3)} ${CX} ${CY})`);
-      trailRef.current?.setAttribute('d', arcPath(R - 14, Math.min(0, pos), Math.max(0, pos)));
-      raf = requestAnimationFrame(step);
+      const state = motion.current;
+      state.vel += (150 * (target - state.pos) - 18 * state.vel) * dt;
+      state.pos += state.vel * dt;
+      const settled = Math.abs(target - state.pos) < 0.02 && Math.abs(state.vel) < 0.02;
+      if (settled) { state.pos = target; state.vel = 0; }
+      paint();
+      if (!settled) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [cents, reduced]);
 
   const ticks = useMemo(() => {
     const items: { d: string; kind: 'major' | 'mid' | 'minor'; c: number }[] = [];

@@ -1,29 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PitchDetector } from './pitchDetector';
+import { CaptureSession } from './capture';
+import { PitchStabilizer, type Reading } from './stabilizer';
 
 export type TunerStatus = 'idle' | 'starting' | 'listening' | 'error';
-
-const WINDOW_SIZE = 4096; // ~85 ms @ 48 kHz: ≥ 6 periods of low E (82 Hz)
-const MIN_FREQUENCY = 60;
-const MAX_FREQUENCY = 1100;
-const NOISE_GATE_RMS = 0.006;
-const MIN_CLARITY = 0.88;
-const HISTORY_SIZE = 5;
-/** A reading this far from the current median counts as a possible new note. */
-const NOTE_CHANGE_CENTS = 60;
-/** Consistent outliers needed before we accept that a new note started. */
-const NOTE_CHANGE_FRAMES = 3;
-/** Keep showing the last pitch this long after the signal fades. */
-const HOLD_MS = 1200;
-const EMA_ALPHA = 0.35;
-
-const cents = (a: number, b: number) => 1200 * Math.log2(a / b);
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
+export type SignalQuality = 'calibrating' | 'weak' | 'unclear' | 'clipping' | 'good';
+const EMPTY: Reading = { frequency: null, confidence: 0, acceptedAt: null, valid: false };
+const WINDOW_SIZE = 4096;
 
 function describeError(err: unknown): string {
   if (err instanceof DOMException) {
@@ -34,50 +17,60 @@ function describeError(err: unknown): string {
   return 'Não foi possível acessar o microfone.';
 }
 
-export function useTuner() {
+export function useTuner(sensitivity = 50, expectedFrequency?: number) {
   const [status, setStatus] = useState<TunerStatus>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [frequency, setFrequency] = useState<number | null>(null);
+  const [reading, setReading] = useState<Reading>(EMPTY);
   const [level, setLevel] = useState(0);
-
-  const ctxRef = useRef<AudioContext | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const [quality, setQuality] = useState<SignalQuality>('weak');
+  const session = useRef(new CaptureSession());
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const active = useRef(false);
+  const expectedRef = useRef(expectedFrequency);
+  expectedRef.current = expectedFrequency;
+  const sensitivityRef = useRef(sensitivity);
+  sensitivityRef.current = sensitivity;
+  const calibration = useRef({ since: 0, samples: [] as number[], noise: 0.002 });
 
   const stop = useCallback(() => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    void ctxRef.current?.close();
-    ctxRef.current = null;
-    setFrequency(null);
+    active.current = false;
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    session.current.stop();
+    setReading(EMPTY);
     setLevel(0);
     setStatus('idle');
   }, []);
 
-  const start = useCallback(async () => {
-    if (ctxRef.current) return;
-    setError(null);
+  const calibrate = useCallback(() => {
+    calibration.current = { since: performance.now(), samples: [], noise: calibration.current.noise };
+    setQuality('calibrating');
+    setReading(EMPTY);
+  }, []);
 
+  const start = useCallback(async () => {
+    if (active.current) return;
+    active.current = true;
+    setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
+      active.current = false;
       setError('Este navegador não suporta captura de áudio (é necessário HTTPS ou localhost).');
       setStatus('error');
       return;
     }
-
     setStatus('starting');
     try {
-      // Disable voice-call processing: it distorts pitch and gates sustained notes.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      const resources = await session.current.start(() => {
+        stop();
+        setError('Captura interrompida. Ative o microfone novamente para reconectar.');
+        setStatus('error');
       });
-      const ctx = new AudioContext({ latencyHint: 'interactive' });
-      await ctx.resume();
-      streamRef.current = stream;
-      ctxRef.current = ctx;
-
+      if (!resources) return;
+      const { stream, context: ctx } = resources;
       const source = ctx.createMediaStreamSource(stream);
+      const raw = ctx.createAnalyser();
+      raw.fftSize = WINDOW_SIZE;
+      source.connect(raw);
       const highpass = ctx.createBiquadFilter();
       highpass.type = 'highpass';
       highpass.frequency.value = 50;
@@ -89,84 +82,85 @@ export function useTuner() {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = WINDOW_SIZE;
       source.connect(highpass).connect(lowpass).connect(analyser);
-
       const buffer = new Float32Array(WINDOW_SIZE);
+      const rawBuffer = new Float32Array(WINDOW_SIZE);
       const detector = new PitchDetector(WINDOW_SIZE, ctx.sampleRate);
-      let history: number[] = [];
-      let candidates: number[] = [];
-      let smoothedLog: number | null = null;
-      let lastVoiced = 0;
-      let displayLevel = 0;
-      let lastLevelUpdate = 0;
-
-      const tick = (now: number) => {
+      let stabilizer = new PitchStabilizer();
+      let calibrationSince = -1;
+      let previousFrequency: number | undefined;
+      let previousAt = -Infinity;
+      calibrate();
+      const tick = () => {
+        if (!active.current) return;
+        const now = performance.now();
         analyser.getFloatTimeDomainData(buffer);
-
+        raw.getFloatTimeDomainData(rawBuffer);
         let sum = 0;
-        for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
+        let peak = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          sum += buffer[i] * buffer[i];
+          peak = Math.max(peak, Math.abs(rawBuffer[i]));
+        }
         const rms = Math.sqrt(sum / buffer.length);
-        displayLevel = Math.max(rms, displayLevel * 0.92);
-
-        if (rms > NOISE_GATE_RMS) {
-          const estimate = detector.detect(buffer, MIN_FREQUENCY, MAX_FREQUENCY);
-          if (estimate && estimate.clarity >= MIN_CLARITY) {
-            const f = estimate.frequency;
-            const isNewNote = history.length > 0 && Math.abs(cents(f, median(history))) > NOTE_CHANGE_CENTS;
-
-            if (isNewNote) {
-              // Only switch notes once several readings agree; isolated octave
-              // glitches are dropped here.
-              const agrees = candidates.length === 0 || Math.abs(cents(f, median(candidates))) < NOTE_CHANGE_CENTS / 2;
-              candidates = agrees ? [...candidates, f] : [f];
-              if (candidates.length >= NOTE_CHANGE_FRAMES) {
-                history = candidates;
-                candidates = [];
-                smoothedLog = null;
-              }
-            } else {
-              history.push(f);
-              if (history.length > HISTORY_SIZE) history.shift();
-              candidates = [];
-            }
-
-            if (history.length > 0) {
-              lastVoiced = now;
-              const logF = Math.log2(median(history));
-              smoothedLog = smoothedLog === null ? logF : smoothedLog + EMA_ALPHA * (logF - smoothedLog);
-              setFrequency(2 ** smoothedLog);
+        setLevel(Math.min(1, rms * 6));
+        const cal = calibration.current;
+        if (cal.since !== calibrationSince) {
+          calibrationSince = cal.since;
+          stabilizer = new PitchStabilizer();
+          previousFrequency = undefined;
+        }
+        let nextQuality: SignalQuality;
+        let frequency: number | null = null;
+        let confidence = 0;
+        if (now - cal.since < 1000) {
+          cal.samples.push(rms);
+          nextQuality = 'calibrating';
+        } else {
+          if (cal.samples.length) {
+            cal.samples.sort((a, b) => a - b);
+            cal.noise = cal.samples[Math.floor(cal.samples.length / 2)];
+            cal.samples = [];
+          }
+          const gate = Math.max(0.001, cal.noise * 2.5, 0.006) * 2 ** ((50 - sensitivityRef.current) / 25);
+          nextQuality = peak >= 0.98 ? 'clipping' : rms < gate ? 'weak' : 'unclear';
+          if (nextQuality === 'unclear') {
+            const estimate = detector.detect(buffer, 60, 1100, expectedRef.current ?? (now - previousAt < 200 ? previousFrequency : undefined));
+            if (estimate && estimate.clarity >= 0.88) {
+              frequency = estimate.frequency;
+              confidence = estimate.clarity;
+              nextQuality = 'good';
             }
           }
         }
-
-        if (lastVoiced && now - lastVoiced > HOLD_MS) {
-          history = [];
-          candidates = [];
-          smoothedLog = null;
-          lastVoiced = 0;
-          setFrequency(null);
+        setQuality(nextQuality);
+        const reading = stabilizer.update(frequency, confidence, now);
+        if (reading.valid && reading.frequency !== null) {
+          previousFrequency = reading.frequency;
+          previousAt = now;
         }
-
-        if (now - lastLevelUpdate > 50) {
-          lastLevelUpdate = now;
-          setLevel(Math.min(1, displayLevel * 6));
-        }
-
-        rafRef.current = requestAnimationFrame(tick);
+        setReading(reading);
+        // Analysis and React updates capped at 20 Hz, regardless of screen refresh.
+        timer.current = setTimeout(tick, 50);
       };
-
-      rafRef.current = requestAnimationFrame(tick);
+      tick();
       setStatus('listening');
     } catch (err) {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      void ctxRef.current?.close();
-      ctxRef.current = null;
+      stop();
       setError(describeError(err));
       setStatus('error');
     }
-  }, []);
+  }, [stop, calibrate]);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => {
+    const hidden = () => {
+      if (document.hidden) {
+        stop();
+        setError('Captura pausada com a aba oculta. Ative o microfone para continuar.');
+      }
+    };
+    document.addEventListener('visibilitychange', hidden);
+    return () => { document.removeEventListener('visibilitychange', hidden); stop(); };
+  }, [stop]);
 
-  return { status, error, frequency, level, start, stop };
+  return { status, error, ...reading, level, quality, start, stop, calibrate };
 }
