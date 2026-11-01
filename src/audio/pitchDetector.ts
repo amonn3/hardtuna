@@ -27,7 +27,7 @@ export class PitchDetector {
   private readonly nsdf: Float64Array;
 
   /** Fraction of the highest NSDF peak the chosen peak must reach. */
-  private readonly peakThreshold = 0.9;
+  private readonly peakThreshold = 0.995;
 
   constructor(windowSize: number, sampleRate: number) {
     this.windowSize = windowSize;
@@ -101,7 +101,7 @@ export class PitchDetector {
       }
       if (inLobe && v > nsdf[best]) best = tau;
     }
-    if (inLobe && best >= minLag && best < maxLag) peaks.push(best);
+    if (inLobe && best >= minLag && best <= maxLag) peaks.push(best);
     if (peaks.length === 0) return null;
 
     let highest = 0;
