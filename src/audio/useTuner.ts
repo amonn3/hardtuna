@@ -17,7 +17,7 @@ function describeError(err: unknown): string {
   return 'Não foi possível acessar o microfone.';
 }
 
-export function useTuner(sensitivity = 50) {
+export function useTuner(sensitivity = 50, expectedFrequency?: number) {
   const [status, setStatus] = useState<TunerStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState<Reading>(EMPTY);
@@ -26,6 +26,8 @@ export function useTuner(sensitivity = 50) {
   const session = useRef(new CaptureSession());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = useRef(false);
+  const expectedRef = useRef(expectedFrequency);
+  expectedRef.current = expectedFrequency;
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
   const calibration = useRef({ since: 0, samples: [] as number[], noise: 0.002 });
@@ -85,6 +87,8 @@ export function useTuner(sensitivity = 50) {
       const detector = new PitchDetector(WINDOW_SIZE, ctx.sampleRate);
       let stabilizer = new PitchStabilizer();
       let calibrationSince = -1;
+      let previousFrequency: number | undefined;
+      let previousAt = -Infinity;
       calibrate();
       const tick = () => {
         if (!active.current) return;
@@ -103,6 +107,7 @@ export function useTuner(sensitivity = 50) {
         if (cal.since !== calibrationSince) {
           calibrationSince = cal.since;
           stabilizer = new PitchStabilizer();
+          previousFrequency = undefined;
         }
         let nextQuality: SignalQuality;
         let frequency: number | null = null;
@@ -119,7 +124,7 @@ export function useTuner(sensitivity = 50) {
           const gate = Math.max(0.001, cal.noise * 2.5, 0.006) * 2 ** ((50 - sensitivityRef.current) / 25);
           nextQuality = peak >= 0.98 ? 'clipping' : rms < gate ? 'weak' : 'unclear';
           if (nextQuality === 'unclear') {
-            const estimate = detector.detect(buffer, 60, 1100);
+            const estimate = detector.detect(buffer, 60, 1100, expectedRef.current ?? (now - previousAt < 200 ? previousFrequency : undefined));
             if (estimate && estimate.clarity >= 0.88) {
               frequency = estimate.frequency;
               confidence = estimate.clarity;
@@ -128,7 +133,12 @@ export function useTuner(sensitivity = 50) {
           }
         }
         setQuality(nextQuality);
-        setReading(stabilizer.update(frequency, confidence, now));
+        const reading = stabilizer.update(frequency, confidence, now);
+        if (reading.valid && reading.frequency !== null) {
+          previousFrequency = reading.frequency;
+          previousAt = now;
+        }
+        setReading(reading);
         // Analysis and React updates capped at 20 Hz, regardless of screen refresh.
         timer.current = setTimeout(tick, 50);
       };

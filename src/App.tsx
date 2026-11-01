@@ -37,8 +37,9 @@ function Logo() {
 export function App() {
   const [a4, setA4] = useState(() => readPreference('a4', 440, 430, 450));
   const [sensitivity, setSensitivity] = useState(() => readPreference('sensitivity', 50, 0, 100));
-  const tuner = useTuner(sensitivity);
   const [lockedId, setLockedId] = useState<number | null>(null);
+  const manualString = STANDARD_TUNING.find(s => s.id === lockedId);
+  const tuner = useTuner(sensitivity, manualString ? midiToFrequency(manualString.midi, a4) : undefined);
   const [tunedIds, setTunedIds] = useState<Set<number>>(() => new Set());
   const lastTargetRef = useRef<GuitarString | null>(null);
   const selector = useRef(new AutoStringSelector());

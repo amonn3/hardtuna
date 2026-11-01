@@ -13,8 +13,8 @@ export interface PitchEstimate {
  * Computes the Normalized Square Difference Function (NSDF) using an
  * FFT-based autocorrelation, picks the first "key maximum" above a fraction
  * of the highest peak, then refines the lag with parabolic interpolation for
- * sub-sample (sub-cent) precision. Robust against the octave errors that
- * plain autocorrelation makes on guitar strings with strong harmonics.
+ * sub-sample (sub-cent) precision. Peak evidence and optional note context reduce harmonic octave errors;
+ * real instruments and noise still require device validation.
  */
 export class PitchDetector {
   readonly windowSize: number;
@@ -43,7 +43,7 @@ export class PitchDetector {
     this.nsdf = new Float64Array(windowSize);
   }
 
-  detect(input: Float32Array, minFrequency: number, maxFrequency: number): PitchEstimate | null {
+  detect(input: Float32Array, minFrequency: number, maxFrequency: number, expectedFrequency?: number): PitchEstimate | null {
     const W = this.windowSize;
     const N = this.fft.size;
     const { re, im, x, nsdf, sampleRate } = this;
@@ -101,7 +101,7 @@ export class PitchDetector {
       }
       if (inLobe && v > nsdf[best]) best = tau;
     }
-    if (inLobe && best >= minLag && best <= maxLag) peaks.push(best);
+    if (inLobe && best >= minLag && best <= maxLag && nsdf[best] >= nsdf[best + 1]) peaks.push(best);
     if (peaks.length === 0) return null;
 
     let highest = 0;
@@ -109,7 +109,18 @@ export class PitchDetector {
     if (highest <= 0) return null;
 
     const threshold = this.peakThreshold * highest;
-    const chosen = peaks.find((p) => nsdf[p] >= threshold)!;
+    let chosen = peaks.find((p) => nsdf[p] >= threshold)!;
+    if (expectedFrequency && expectedFrequency > 0) {
+      const first = peaks.find(p => nsdf[p] >= highest * 0.9)!;
+      const contextual = peaks.find(p =>
+        nsdf[p] >= highest * 0.98 &&
+        Math.abs(1200 * Math.log2((sampleRate / p) / expectedFrequency)) < 100 &&
+        nsdf[p] > nsdf[first] + 0.001,
+      );
+      // Require additional periodicity evidence: context alone must never fold
+      // a genuine octave (or pure sine) down to the selected string.
+      if (contextual !== undefined) chosen = contextual;
+    }
 
     // Parabolic interpolation around the chosen peak.
     const a = nsdf[chosen - 1];
