@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="160" viewBox="0 0 720 160" role="img" aria-labelledby="title desc">
+  <title id="title">HardTuna</title>
+  <desc id="desc">Peixe em degradê verde e azul ao lado do nome HardTuna.</desc>
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5ef2c0"/>
+      <stop offset="1" stop-color="#4f7cff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(18 20) scale(3.5)">
+    <path d="M3 16c3.8-6.5 12-8.6 18.5-4.3L27 7.5v17l-5.5-4.2C15 24.6 6.8 22.5 3 16z" fill="url(#brand)"/>
+    <circle cx="9" cy="15" r="1.5" fill="#070a12"/>
+    <path d="M14 12.5c1.2 2.2 1.2 4.8 0 7" stroke="#070a12" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  </g>
+  <text x="145" y="108" fill="url(#brand)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="94" font-weight="750" letter-spacing="-4">HardTuna</text>
+</svg>
