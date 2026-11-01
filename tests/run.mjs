@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 const dir = await mkdtemp(join(tmpdir(), 'hardtuna-tests-'));
 try {
   const outfile = join(dir, 'tests.cjs');
-  await build({ entryPoints: ['tests/regression.ts'], bundle: true, platform: 'node', format: 'cjs', outfile });
+  await build({ entryPoints: [process.argv[2] ?? 'tests/regression.ts'], bundle: true, platform: 'node', format: 'cjs', outfile });
   const result = spawnSync(process.execPath, [outfile], { stdio: 'inherit' });
   process.exitCode = result.status ?? 1;
 } finally { await rm(dir, { recursive: true, force: true }); }

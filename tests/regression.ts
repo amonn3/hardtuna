@@ -88,3 +88,88 @@ test('confirmation requires 700 ms of valid readings, including an exactly stabl
   confirmation.reset();
   assert.equal(confirmation.update(6, 0, true, 1500), false);
 });
+
+test('manual octave context requires signal evidence and preserves real detuning', () => {
+  const detector = new PitchDetector(4096, 48000);
+  for (const frequency of [82.41 * 2 ** (-40 / 1200), 82.41, 82.41 * 2 ** (40 / 1200)]) {
+    const result = detector.detect(signal(frequency, 48000, [0.05, 1, 0.01]), 60, 1100, 82.41);
+    assert.ok(result && Math.abs(centsBetween(result.frequency, frequency)) < 1);
+  }
+  const octave = detector.detect(signal(164.82, 48000), 60, 1100, 82.41);
+  assert.ok(octave && Math.abs(centsBetween(octave.frequency, 164.82)) < 1);
+});
+test('broadband noise has insufficient periodicity', () => {
+  let seed = 42;
+  const noise = Float32Array.from({ length: 4096 }, () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return (seed / 2 ** 32 - 0.5) * 0.1;
+  });
+  const result = new PitchDetector(4096, 48000).detect(noise, 60, 1100);
+  assert.ok(result === null || result.clarity < 0.88);
+});
+
+function mockCapture(options: { resumeFails?: boolean; closeFails?: boolean; deferred?: boolean } = {}) {
+  const track = Object.assign(new EventTarget(), { readyState: 'live', stops: 0, stop() { this.stops++; this.readyState = 'ended'; } });
+  let resume!: () => void;
+  const context = Object.assign(new EventTarget(), {
+    state: 'running', closes: 0,
+    resume: () => options.resumeFails ? Promise.reject(new Error('resume')) : options.deferred ? new Promise<void>(r => { resume = r; }) : Promise.resolve(),
+    close() { this.closes++; this.state = 'closed'; return options.closeFails ? Promise.reject(new Error('close')) : Promise.resolve(); },
+  });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: {
+    getUserMedia: async () => ({ getTracks: () => [track] }),
+  } } });
+  Object.defineProperty(globalThis, 'AudioContext', { configurable: true, value: function () { return context; } });
+  return { track, context, finishResume: () => resume() };
+}
+
+test('resume failures release both resources even when closing rejects', async () => {
+  const { track, context } = mockCapture({ resumeFails: true, closeFails: true });
+  await assert.rejects(new CaptureSession().start(() => {}));
+  assert.equal(track.stops, 1);
+  assert.equal(context.closes, 1);
+});
+test('stopping during resume cancels the session and detaches interruption listeners', async () => {
+  const mock = mockCapture({ deferred: true });
+  const session = new CaptureSession();
+  let interruptions = 0;
+  const pending = session.start(() => interruptions++);
+  await Promise.resolve();
+  session.stop();
+  mock.finishResume();
+  assert.equal(await pending, null);
+  mock.track.dispatchEvent(new Event('ended'));
+  assert.equal(interruptions, 0);
+  assert.equal(mock.track.stops, 1);
+  assert.equal(mock.context.closes, 1);
+});
+test('track termination and context suspension are observable, with repeatable cleanup', async () => {
+  for (const event of ['ended', 'statechange']) {
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const mock = mockCapture();
+      const session = new CaptureSession();
+      let interruptions = 0;
+      await session.start(() => { interruptions++; session.stop(); });
+      if (event === 'ended') mock.track.dispatchEvent(new Event('ended'));
+      else { mock.context.state = 'suspended'; mock.context.dispatchEvent(new Event('statechange')); }
+      session.stop();
+      assert.equal(interruptions, 1);
+      assert.equal(mock.track.stops, 1);
+      assert.equal(mock.context.closes, 1);
+    }
+  }
+});
+
+import { readPreference, savePreference } from '../src/preferences';
+test('preferences tolerate blocked storage and clamp saved values', () => {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: () => { throw new Error('blocked'); } });
+  assert.equal(readPreference('a4', 440, 430, 450), 440);
+  assert.doesNotThrow(() => savePreference('a4', 441));
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => '900' } });
+  assert.equal(readPreference('a4', 440, 430, 450), 450);
+});
+
+test('a peak still rising at the low-frequency boundary is not a 60 Hz observation', () => {
+  const detector = new PitchDetector(4096, 48000);
+  assert.equal(detector.detect(signal(59, 48000), 60, 1100), null);
+});
