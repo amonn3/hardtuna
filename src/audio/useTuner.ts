@@ -1,3 +1,4 @@
+import { type MicrophoneError } from '../i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PitchDetector } from './pitchDetector';
 import { CaptureSession } from './capture';
@@ -8,18 +9,18 @@ export type SignalQuality = 'calibrating' | 'weak' | 'unclear' | 'clipping' | 'g
 const EMPTY: Reading = { frequency: null, confidence: 0, acceptedAt: null, valid: false };
 const WINDOW_SIZE = 4096;
 
-function describeError(err: unknown): string {
+function describeError(err: unknown): MicrophoneError {
   if (err instanceof DOMException) {
-    if (err.name === 'NotAllowedError') return 'Permissão do microfone negada. Libere o acesso nas configurações do navegador e tente novamente.';
-    if (err.name === 'NotFoundError') return 'Nenhum microfone encontrado. Conecte um microfone e tente novamente.';
-    if (err.name === 'NotReadableError') return 'O microfone está sendo usado por outro aplicativo.';
+    if (err.name === 'NotAllowedError') return 'denied';
+    if (err.name === 'NotFoundError') return 'notFound';
+    if (err.name === 'NotReadableError') return 'notReadable';
   }
-  return 'Não foi possível acessar o microfone.';
+  return 'micError';
 }
 
 export function useTuner(sensitivity = 50, expectedFrequency?: number) {
   const [status, setStatus] = useState<TunerStatus>('idle');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<MicrophoneError | null>(null);
   const [reading, setReading] = useState<Reading>(EMPTY);
   const [level, setLevel] = useState(0);
   const [quality, setQuality] = useState<SignalQuality>('weak');
@@ -54,7 +55,7 @@ export function useTuner(sensitivity = 50, expectedFrequency?: number) {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       active.current = false;
-      setError('Este navegador não suporta captura de áudio (é necessário HTTPS ou localhost).');
+      setError('unsupported');
       setStatus('error');
       return;
     }
@@ -62,7 +63,7 @@ export function useTuner(sensitivity = 50, expectedFrequency?: number) {
     try {
       const resources = await session.current.start(() => {
         stop();
-        setError('Captura interrompida. Ative o microfone novamente para reconectar.');
+        setError('interrupted');
         setStatus('error');
       });
       if (!resources) return;
@@ -155,7 +156,7 @@ export function useTuner(sensitivity = 50, expectedFrequency?: number) {
     const hidden = () => {
       if (document.hidden) {
         stop();
-        setError('Captura pausada com a aba oculta. Ative o microfone para continuar.');
+        setError('hidden');
       }
     };
     document.addEventListener('visibilitychange', hidden);

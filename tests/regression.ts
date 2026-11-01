@@ -173,3 +173,38 @@ test('a peak still rising at the low-frequency boundary is not a 60 Hz observati
   const detector = new PitchDetector(4096, 48000);
   assert.equal(detector.detect(signal(59, 48000), 60, 1100), null);
 });
+
+import { readLanguage, saveLanguage } from '../src/i18n';
+test('language defaults to English and restores only supported preferences', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  let stored: string | null = null;
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => { assert.equal(key, 'hardtuna:language'); return stored; },
+    setItem: (key: string, value: string) => { assert.equal(key, 'hardtuna:language'); stored = value; },
+  } });
+  try {
+    assert.equal(readLanguage(), 'en');
+    saveLanguage('pt-BR');
+    assert.equal(readLanguage(), 'pt-BR');
+    saveLanguage('en');
+    assert.equal(readLanguage(), 'en');
+    stored = 'fr';
+    assert.equal(readLanguage(), 'en');
+    stored = '';
+    assert.equal(readLanguage(), 'en');
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
+});
+test('language remains usable when browser storage is blocked', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('Storage blocked'); } });
+  try {
+    assert.equal(readLanguage(), 'en');
+    assert.doesNotThrow(() => saveLanguage('pt-BR'));
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
+});
