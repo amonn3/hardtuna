@@ -279,7 +279,10 @@ export function App() {
       </main>
 
       <footer className="footnote">
-        Dica: toque uma corda de cada vez, deixando-a soar livre. Tolerância: ±{IN_TUNE_CENTS} cents.
+        <p>Dica: toque uma corda de cada vez, deixando-a soar livre. Tolerância: ±{IN_TUNE_CENTS} cents.</p>
+        <p className="footnote__signature">
+          HardTuna™ · por <a href="https://github.com/amonn3">amonn3</a>
+        </p>
       </footer>
     </div>
   );

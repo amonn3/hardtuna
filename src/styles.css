@@ -466,6 +466,10 @@ button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 }
 
 .footnote { font-size: 12px; color: var(--faint); text-align: center; max-width: 560px; }
+.footnote p { margin: 0; }
+.footnote .footnote__signature { margin-top: 10px; color: var(--muted); }
+.footnote__signature a { color: inherit; text-underline-offset: 3px; }
+.footnote__signature a:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
 
 @media (max-width: 480px) {
   .card { padding: 16px 14px; border-radius: 22px; }
