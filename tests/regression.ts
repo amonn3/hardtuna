@@ -26,3 +26,46 @@ for (const rate of [44100, 48000, 96000]) {
     assert.ok(octave && Math.abs(centsBetween(octave.frequency, 164.82)) < 1);
   });
 }
+
+import { PitchStabilizer } from '../src/audio/stabilizer';
+import { CaptureSession } from '../src/audio/capture';
+test('rejected notes and silence never refresh validity or last accepted timestamp', () => {
+  const stable = new PitchStabilizer();
+  assert.equal(stable.update(110, 1, 0).valid, true);
+  const rejected = stable.update(220, 1, 50);
+  assert.equal(rejected.valid, false);
+  assert.equal(rejected.acceptedAt, 0);
+  assert.ok(Math.abs(stable.update(null, 0, 100).frequency! - 110) < 1e-9);
+  assert.equal(stable.update(null, 0, 1250).frequency, null);
+});
+test('note changes require elapsed time and genuine octave changes are accepted', () => {
+  for (const cadence of [25, 50]) {
+    const stable = new PitchStabilizer();
+    stable.update(110, 1, 0);
+    for (let t = cadence; t <= 200; t += cadence) stable.update(220, 1, t);
+    assert.ok(Math.abs(stable.update(220, 1, 250).frequency! - 220) < 0.001);
+  }
+});
+test('cancelled permission requests release their late stream and block concurrent starts', async () => {
+  let resolve!: (stream: MediaStream) => void;
+  let stopped = 0;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: {
+    getUserMedia: () => new Promise<MediaStream>(r => { resolve = r; }),
+  } } });
+  const session = new CaptureSession();
+  const pending = session.start(() => {});
+  assert.equal(await session.start(() => {}), null);
+  session.stop();
+  resolve({ getTracks: () => [{ stop: () => stopped++ }] } as unknown as MediaStream);
+  assert.equal(await pending, null);
+  assert.equal(stopped, 1);
+});
+test('context creation failure releases the microphone', async () => {
+  let stopped = 0;
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: {
+    getUserMedia: async () => ({ getTracks: () => [{ stop: () => stopped++ }] }),
+  } } });
+  Object.defineProperty(globalThis, 'AudioContext', { configurable: true, value: class { constructor() { throw new Error('failed'); } } });
+  await assert.rejects(new CaptureSession().start(() => {}));
+  assert.equal(stopped, 1);
+});
