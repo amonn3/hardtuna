@@ -69,3 +69,22 @@ test('context creation failure releases the microphone', async () => {
   await assert.rejects(new CaptureSession().start(() => {}));
   assert.equal(stopped, 1);
 });
+
+import { AutoStringSelector, TuningConfirmation, nearestString } from '../src/tuning';
+test('automatic selection rejects distant frequencies and waits before switching strings', () => {
+  assert.equal(nearestString(1000, 440), null);
+  const selector = new AutoStringSelector();
+  assert.equal(selector.update(110, 440, 0)?.id, 5);
+  assert.equal(selector.update(146.83, 440, 50)?.id, 5);
+  assert.equal(selector.update(146.83, 440, 200)?.id, 4);
+  assert.equal(selector.update(1000, 440, 250), null);
+});
+test('confirmation requires 700 ms of valid readings, including an exactly stable pitch', () => {
+  const confirmation = new TuningConfirmation();
+  for (let t = 0; t < 700; t += 50) assert.equal(confirmation.update(6, 0, true, t), false);
+  assert.equal(confirmation.update(6, 0, true, 700), true);
+  confirmation.update(6, 0, false, 700);
+  assert.equal(confirmation.update(6, 0, true, 750), false);
+  confirmation.reset();
+  assert.equal(confirmation.update(6, 0, true, 1500), false);
+});

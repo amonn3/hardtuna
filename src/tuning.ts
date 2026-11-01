@@ -26,7 +26,7 @@ export function centsBetween(frequency: number, reference: number): number {
   return 1200 * Math.log2(frequency / reference);
 }
 
-export function nearestString(frequency: number, a4: number): GuitarString {
+export function nearestString(frequency: number, a4: number): GuitarString | null {
   let best = STANDARD_TUNING[0];
   let bestDistance = Infinity;
   for (const s of STANDARD_TUNING) {
@@ -36,10 +36,48 @@ export function nearestString(frequency: number, a4: number): GuitarString {
       best = s;
     }
   }
-  return best;
+  return bestDistance <= 300 ? best : null;
 }
 
 export function noteFromFrequency(frequency: number, a4: number): { name: string; octave: number } {
   const midi = Math.round(69 + 12 * Math.log2(frequency / a4));
   return { name: NOTE_NAMES[((midi % 12) + 12) % 12], octave: Math.floor(midi / 12) - 1 };
+}
+
+export const IN_TUNE_CENTS = 3;
+export const TUNED_HOLD_MS = 700;
+
+/** Hysteresis and dwell prevent switching strings at every midpoint crossing. */
+export class AutoStringSelector {
+  private current: GuitarString | null = null;
+  private candidate: { id: number; since: number } | null = null;
+  reset() { this.current = null; this.candidate = null; }
+  update(frequency: number | null, a4: number, now: number): GuitarString | null {
+    if (frequency === null) { this.candidate = null; return this.current; }
+    const next = nearestString(frequency, a4);
+    if (!next) { this.reset(); return null; }
+    if (!this.current) return this.current = next;
+    if (this.current.id === next.id) { this.candidate = null; return this.current; }
+    const distance = (s: GuitarString) => Math.abs(centsBetween(frequency, midiToFrequency(s.midi, a4)));
+    if (distance(this.current) - distance(next) < 40) { this.candidate = null; return this.current; }
+    if (this.candidate?.id !== next.id) this.candidate = { id: next.id, since: now };
+    if (now - this.candidate.since >= 150) { this.current = next; this.candidate = null; }
+    return this.current;
+  }
+}
+
+/** Confirmation advances only on consecutive accepted audio observations. */
+export class TuningConfirmation {
+  private current: { id: number; since: number; last: number } | null = null;
+  reset() { this.current = null; }
+  update(id: number | null, cents: number | null, valid: boolean, at: number | null): boolean {
+    if (!valid || id === null || cents === null || at === null || Math.abs(cents) > IN_TUNE_CENTS) {
+      this.reset(); return false;
+    }
+    if (!this.current || this.current.id !== id || at - this.current.last > 120) {
+      this.current = { id, since: at, last: at };
+    }
+    this.current.last = at;
+    return at - this.current.since >= TUNED_HOLD_MS;
+  }
 }
