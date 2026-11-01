@@ -22,6 +22,7 @@ export function StringSelector({ activeId, lockedId, tunedIds, a4, onSelect }: S
             type="button"
             className={classes.join(' ')}
             onClick={() => onSelect(s.id)}
+            aria-label={`${s.id}ª corda, ${s.note}${s.octave}${tunedIds.has(s.id) ? ", afinada" : ""}`}
             aria-pressed={s.id === lockedId}
             title={`${s.id}ª corda — ${s.note}${s.octave} (${midiToFrequency(s.midi, a4).toFixed(2)} Hz)`}
           >
