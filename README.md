@@ -1,77 +1,129 @@
-# HardTuna
+<p align="center">
+  <img src="docs/assets/hardtuna-logo.svg" width="560" alt="HardTuna — afinador de violão" />
+</p>
 
-Afinador de violão web (React + TypeScript + Vite) para afinação padrão **E A D G B E**.
+<p align="center">
+  <strong>Toque uma corda. Encontre a nota. Afine no navegador.</strong>
+</p>
 
-## Rodando
+<p align="center">
+  <a href="https://github.com/amonn3/hardtuna/actions/workflows/pages.yml"><img src="https://github.com/amonn3/hardtuna/actions/workflows/pages.yml/badge.svg?branch=main" alt="Testes e deploy" /></a>
+  <a href="https://amonn3.github.io/hardtuna/"><img src="https://img.shields.io/badge/abrir-HardTuna-5ef2c0?logo=githubpages&logoColor=white" alt="Abrir HardTuna" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT-4f7cff" alt="Licença MIT" /></a>
+  <img src="https://img.shields.io/badge/React-TypeScript-3178c6?logo=typescript&logoColor=white" alt="React e TypeScript" />
+</p>
 
-```bash
-npm install
-npm run dev
-```
+---
 
-Abra http://localhost:5173 e clique em **Ativar microfone**.
+HardTuna é um afinador de violão que roda no navegador. Você abre a página, permite o microfone e toca uma corda. Sem instalar um aplicativo, criar uma conta ou conectar o instrumento a uma interface de áudio.
+
+Ele foi feito para uma tarefa: ajudar a encontrar a afinação padrão **E A D G B E**, com uma leitura fácil de acompanhar. O microfone é processado no seu dispositivo; o aplicativo não grava nem envia seu áudio. A referência A4 e a sensibilidade ficam salvas no próprio navegador, quando o armazenamento está disponível.
+
+## O que faz
+
+- **Reconhece a corda automaticamente.** Uma margem de troca e uma breve confirmação reduzem as mudanças de corda causadas por leituras instáveis.
+- **Permite escolher a corda.** Clique em uma das seis cordas para usar o modo manual, inclusive quando a nota estiver distante da afinação esperada.
+- **Mostra quanto falta.** O ponteiro indica o desvio em cents, junto da frequência medida e da orientação para subir ou descer a afinação.
+- **Marca o progresso.** Uma corda recebe ✓ após 700 ms de leituras válidas dentro de ±3 cents. Você pode reiniciar as marcações a qualquer momento.
+- **Ajusta a referência.** A4 pode variar entre 430 e 450 Hz; a preferência é preservada entre visitas.
+- **Ajuda a entender o sinal.** Calibração de ruído, sensibilidade ajustável e avisos de som pouco definido ou saturado ajudam a posicionar o instrumento.
+- **Cuida do microfone.** Cancelar a ativação libera os recursos; interrupções permitem reconectar. Ocultar a aba encerra a captura.
+- **Respeita o jeito de navegar.** Controles com estados acessíveis, navegação por teclado e ponteiro compatível com a preferência de movimento reduzido.
+
+## Use agora
+
+**[Abrir HardTuna →](https://amonn3.github.io/hardtuna/)**
+
+1. Clique em **Ativar microfone** e permita o acesso no navegador.
+2. Aguarde um segundo em silêncio para medir o ruído ambiente.
+3. Toque uma corda por vez e deixe o som sustentar.
+4. Ajuste a tarraxa aos poucos, acompanhando o ponteiro. Se a corda não for reconhecida, selecione-a no modo manual.
+
+A versão pública acompanha a `main`: uma atualização só aparece após a conclusão do workflow de deploy.
+
+Use um navegador com captura de áudio e Web Audio. O microfone precisa de **HTTPS** ou `localhost`. Ao voltar de outra aba, ative-o novamente.
 
 ## Como funciona
 
-- **Captura**: `getUserMedia` com `echoCancellation`, `noiseSuppression` e `autoGainControl` desligados
-  (esses filtros de chamada de voz distorcem a afinação), seguido de filtros passa-alta 50 Hz e passa-baixa 1.4 kHz.
-- **Detecção de pitch**: McLeod Pitch Method (`src/audio/pitchDetector.ts`), NSDF por FFT e interpolação parabólica.
-  A seleção de picos e o contexto da corda manual/leitura recente reduzem erros de oitava quando há evidência
-  no sinal. Não há garantia de eliminar esses erros em instrumentos reais. Janela de 4096 amostras (~85 ms a 48 kHz).
-- **Estabilização**: análise limitada a 20 Hz, mediana em janela de 160 ms, confirmação de troca por 100 ms
-  e suavização logarítmica com constante de 100 ms (`src/audio/stabilizer.ts`).
-  A leitura anterior permanece até 1,2 s com aparência atenuada; somente uma observação aceita é sinal válido.
-- **Ponteiro**: SVG com mola amortecida, que interrompe a animação ao estabilizar e respeita movimento reduzido.
-  A tolerância compartilhada é ±3 cents. A marcação da corda exige 700 ms de leituras válidas consecutivas.
-- **Microfone**: inicializações canceladas liberam recursos, interrupções permitem reconexão e ocultar a aba
-  encerra a captura. Cada ativação começa uma sessão nova, sem marcações anteriores.
+```text
+Microfone do dispositivo
+          │
+          ▼
+Filtros de áudio ──► Detector de frequência ──► Estabilização ──► Ponteiro
+          │                                      │
+          └── ruído e nível do sinal              └── corda e confirmação
 
-## Recursos
+                   Tudo acontece no navegador
+```
 
-- Detecção automática da corda ou modo manual (clique numa corda para travá-la)
-- Indicação "aperte" / "afrouxe" a corda
-- Marcação ✓ das cordas já afinadas
-- Referência A4 ajustável (430–450 Hz)
+A captura desliga os filtros de chamada de voz, que podem alterar o som do instrumento. O detector usa o **McLeod Pitch Method**, com autocorrelação por FFT e interpolação dos picos. A evidência do sinal e o contexto da nota ajudam a reduzir erros de oitava, sem simplesmente forçar a frequência esperada.
 
-- Sensibilidade ajustável e A4 salvos localmente, quando o navegador permite
-- Calibração de ruído: um segundo em silêncio ao ativar, com ação para recalibrar
-- Diagnóstico de sinal fraco, pouco periódico ou saturado
-- Reinício das marcações sem desligar o microfone
-- Modo automático com margem de troca e confirmação de 150 ms; frequências a mais de 300 cents
-  de todas as cordas exigem seleção manual
-- Controles com estado acessível, foco contido na tela de ativação e suporte a movimento reduzido
+A análise é limitada a 20 leituras por segundo. A estabilização usa tempo decorrido, e o ponteiro deixa de animar quando chega ao repouso. Uma leitura anterior pode continuar visível por até 1,2 segundo, atenuada, mas deixa de contar como sinal válido assim que não há observação aceita.
 
-## Verificação local
+Mais detalhes sobre janelas, limiares e organização do código: [arquitetura](docs/ARCHITECTURE.md).
+
+## Rodar localmente
+
+Você precisa de **Node.js 22** e npm. A versão está em [`.nvmrc`](.nvmrc).
 
 ```bash
-npm test
-npm run benchmark
-npm run build
+git clone https://github.com/amonn3/hardtuna.git
+cd hardtuna
+npm ci
 npm run dev
 ```
 
-A suíte cobre as seis cordas com desvios de ±20 cents, decaimento, silêncio, ruído determinístico,
-harmônicos dominantes, notas de oitavas reais, limites de frequência e amostragem de 44,1/48/96 kHz.
-Também cobre estabilização, confirmação temporal, escolha da corda, preferências e falhas/cancelamentos da captura.
-O erro ficou abaixo de um cent nos sinais sintéticos testados; isso não comprova precisão com microfone real.
+Abra **http://localhost:5173**. Não é necessário configurar servidor de aplicação, banco de dados ou chave de API.
 
-O benchmark mede apenas o detector em Node, após aquecimento: cerca de 0,32–0,36 ms por detecção
-neste ambiente. Não representa celular nem atraso total. A janela de captura tem 42,7–92,9 ms,
-a análise espera até aproximadamente 50 ms, e mediana, confirmação de troca e mola acrescentam atraso.
-A latência completa deve ser medida com dispositivo e instrumento reais.
+```bash
+npm test              # testes de regressão
+npm run build         # build para hospedagem na raiz
+npm run preview       # prévia desse build
+npm run benchmark     # medição local do detector
+```
 
-Para testar no navegador:
+## Publicação no GitHub Pages
 
-1. Ative o microfone e aguarde um segundo em silêncio. Toque cada corda em Auto e Manual.
-2. Confira a leitura ao parar o som: não deve continuar confirmando afinação.
-3. Sustente uma corda afinada por 700 ms e confira a marcação. Troque A4 ou reinicie e confira a limpeza.
-4. Ajuste sensibilidade e A4, recarregue e confira a persistência.
-5. Desligue/religue, cancele a permissão e alterne de aba; a captura deve encerrar e permitir reconectar.
-6. Navegue por teclado e habilite movimento reduzido. Confira os estados com leitor de tela.
+O [workflow de Pages](.github/workflows/pages.yml) instala as dependências, roda os testes e gera o site. PRs executam a validação; mudanças na `main` também publicam o resultado. O deploy usa o ambiente `github-pages` e o endereço **https://amonn3.github.io/hardtuna/**.
 
-## Rede e uso offline
+O build público usa a base `/hardtuna/`, incluindo scripts, estilos e favicon. Para conferir esse mesmo caminho antes de publicar:
 
-O aplicativo usa fontes do sistema e processa áudio localmente, sem fontes externas.
-O acesso inicial ainda requer o servidor: não há service worker nem instalação offline nesta versão.
-Um cache offline foi avaliado e adiado para definir atualização/invalidação dos arquivos antes da implementação.
-Microfone remoto requer HTTPS; para desenvolvimento na mesma máquina, use localhost.
+```bash
+npm run build:pages
+npm run preview:pages
+```
+
+Abra **http://localhost:4173/hardtuna/**. A publicação precisa estar configurada em **Settings → Pages → Source → GitHub Actions**. Depois da primeira integração, o workflow também pode ser executado manualmente em **Actions → GitHub Pages → Run workflow**, escolhendo a `main`.
+
+## Limites conhecidos
+
+- **Afinação padrão de seis cordas.** Não há seleção de afinações alternativas nesta versão.
+- **Uma corda por vez.** Acordes, ruído e harmônicos podem confundir o detector. A proteção contra oitavas reduz casos conhecidos, mas não elimina todos eles.
+- **Precisão sintética não é precisão garantida.** Nos sinais testados, o erro ficou abaixo de um cent. Microfone, ambiente e instrumento real ainda exigem validação própria.
+- **Sensibilidade depende do ambiente.** Faça a calibração em silêncio e repita se o ruído mudar. Os limiares ainda precisam ser avaliados com gravações e dispositivos representativos.
+- **O benchmark mede só o detector.** Cerca de 0,32–0,36 ms por leitura em Node neste ambiente; isso não mede latência completa nem desempenho em celular.
+- **Não há instalação offline.** As fontes são do sistema e o áudio é local, mas o acesso inicial depende da hospedagem. Não há service worker nesta versão.
+- **Validação assistiva pendente.** Os estados e o foco foram implementados; a experiência com leitores de tela reais ainda precisa ser verificada.
+
+Os cenários automatizados e o roteiro de teste com instrumento estão em [validação](docs/VALIDATION.md).
+
+## Documentação
+
+| Documento | Conteúdo |
+| --- | --- |
+| [Arquitetura](docs/ARCHITECTURE.md) | Captura, detector, estabilização e interface |
+| [Validação](docs/VALIDATION.md) | Testes, benchmark e roteiro com microfone real |
+| [Melhorias](melhorias.md) | Revisão inicial, correções e medições ainda pendentes |
+| [Workflow](.github/workflows/pages.yml) | Validação dos PRs e publicação no Pages |
+
+## Contribuindo
+
+[Issues](https://github.com/amonn3/hardtuna/issues) e pull requests são bem-vindos. Para relatar uma leitura incorreta, informe navegador, dispositivo, corda, modo e o comportamento observado. Evite incluir gravações privadas sem necessidade.
+
+Antes de enviar uma mudança, execute `npm test` e `npm run build:pages`. Mudanças no processamento de áudio devem incluir um caso de regressão que reproduza o problema. Separe alterações independentes em commits pequenos.
+
+## Autor e licença
+
+Criado por **[amonn3](https://github.com/amonn3)**. HardTuna™.
+
+**[MIT](LICENSE)** — você pode usar, modificar e distribuir o código, inclusive comercialmente, preservando os avisos de autoria e licença. O software é fornecido sem garantia.
